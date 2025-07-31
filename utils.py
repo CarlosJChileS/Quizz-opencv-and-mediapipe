@@ -1,6 +1,5 @@
 import mediapipe as mp
 import cv2
-from matplotlib import pyplot as plt
 import numpy as np
 
 COLORES_JUGADORES = [
@@ -12,8 +11,8 @@ mp_hands = mp.solutions.hands
 hands = mp_hands.Hands(
     static_image_mode=False,
     max_num_hands=10,
-    min_detection_confidence=0.55,
-    min_tracking_confidence=0.4,
+    min_detection_confidence=0.85,
+    min_tracking_confidence=0.75,
 )
 mp_face = mp.solutions.face_detection
 face_detection = mp_face.FaceDetection(min_detection_confidence=0.55)
@@ -89,10 +88,13 @@ def detectar_respuesta_por_rostro(img):
             # Solo cuenta si está cerca de algún rostro (<260 px)
             if jugadores and jugador_idx is not None and arriba and min_dist < 260:
                 jugador_id = jugadores[jugador_idx]["id"]
+                # Inicializa memoria de frames si es necesario
                 if jugador_id not in _RESPUESTAS_FRAMES["_frames"]:
                     _RESPUESTAS_FRAMES["_frames"][jugador_id] = {"count":0, "label":None, "t_start":None, "responded":False}
+                # Si ya tiene respuesta, ignora (evita doble mano)
                 if jugadores[jugador_idx]["respuesta"] is not None:
                     continue
+                # Suma frames consecutivos de mano arriba
                 import time
                 mem = _RESPUESTAS_FRAMES["_frames"][jugador_id]
                 now = time.time()
@@ -100,6 +102,7 @@ def detectar_respuesta_por_rostro(img):
                     mem["t_start"] = now
                 mem["count"] += 1
                 mem["label"] = label
+                # 0.5s y 10 frames mínimo
                 if (now - mem["t_start"] > 0.5) and (mem["count"] >= 10):
                     jugadores[jugador_idx]["respuesta"] = "REAL" if label == "Right" else "IA"
                     mem["responded"] = True
@@ -107,21 +110,24 @@ def detectar_respuesta_por_rostro(img):
                     cv2.circle(img, (xh, yh), 36, color, -1)
                     cv2.putText(img, jugadores[jugador_idx]["respuesta"], (xh - 30, yh + 50),
                                 cv2.FONT_HERSHEY_SIMPLEX, 1.2, color, 3)
+                # Feedback visual: círculo de progreso
                 prog = min(1, (now - mem["t_start"])/0.5 if mem["t_start"] else 0)
                 end_angle = int(360*prog)
                 cv2.ellipse(img, (xh, yh), (42, 42), 0, 0, end_angle, (255,255,0), 4)
             else:
+                # Reinicia conteo si se baja la mano o se mueve
                 if jugadores and jugador_idx is not None:
                     jugador_id = jugadores[jugador_idx]["id"]
                     _RESPUESTAS_FRAMES["_frames"].pop(jugador_id, None)
             mp_draw.draw_landmarks(img, hand_landmarks, mp_hands.HAND_CONNECTIONS)
 
+    # 3. Dibuja rostros con color y nombre de jugador
     for jug in jugadores:
         x, y, ancho, alto = jug["bbox"]
         color = jug["color"]
         cv2.rectangle(img, (x, y), (x+ancho, y+alto), color, 4)
         cv2.putText(img, f"Jugador {jug['id']}", (x, y-15),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 4)
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, color, 3)
 
     respuestas = {}
     for jug in jugadores:
@@ -130,25 +136,58 @@ def detectar_respuesta_por_rostro(img):
     colores_por_id = {jug["id"]: jug["color"] for jug in jugadores}
     return respuestas, img, colores_por_id
 
-# --- Pantalla de celebración de campeón con foto ---
-def mostrar_campeon_con_foto(campeon_id, color, rostro, segundos=3):
+def mostrar_campeones_con_foto(ids, colores, rostros, segundos=None):
     import cv2
     import numpy as np
 
-    W, H = 900, 600
-    # Fondo neutro (gris azulado)
-    img = np.full((H, W, 3), (60, 80, 120), dtype=np.uint8)
+    N = len(ids)
+    if N == 0:
+        return
 
-    if rostro is not None:
-        rostro = cv2.resize(rostro, (400, 400))
-        x0 = (W - 400) // 2
-        y0 = (H - 400) // 2
-        img[y0:y0+400, x0:x0+400] = rostro
-    else:
-        cv2.putText(img, "No se detecto rostro", (W//2-180, H//2), cv2.FONT_HERSHEY_DUPLEX, 1.3, (255,255,255), 3, cv2.LINE_AA)
+    max_win_width = 1100
+    min_foto = 260
+    max_foto = 400
+    margen = 24
+
+    # Calcula tamaño de la foto según cuántos ganadores hay
+    foto_w = min(max_foto, max(min_foto, int((max_win_width - margen*(N+1)) / max(N, 1))))
+    foto_h = foto_w
+    W = max(margen + (foto_w + margen) * N, 540)
+    H = 520
+
+    img = np.full((H, int(W), 3), (60, 80, 120), dtype=np.uint8)
+
+    for i, (rostro, jid, color) in enumerate(zip(rostros, ids, colores)):
+        x0 = margen + i * (foto_w + margen)
+        y0 = (H - foto_h)//2
+        # Fondo blanco para cada recuadro
+        cv2.rectangle(img, (x0, y0), (x0+foto_w, y0+foto_h), (255,255,255), -1)
+        if rostro is not None and rostro.size > 0:
+            rostro = cv2.resize(rostro, (foto_w, foto_h))
+            img[y0:y0+foto_h, x0:x0+foto_w] = rostro
+        else:
+            cv2.putText(img, "No se detecto", (x0+16, y0+foto_h//2), cv2.FONT_HERSHEY_DUPLEX, 0.85, (50,50,50), 2, cv2.LINE_AA)
+        # Borde de color del jugador
+        cv2.rectangle(img, (x0, y0), (x0+foto_w, y0+foto_h), color, 5)
+        # Etiqueta centrada abajo
+        nombre = f"Jugador {jid}"
+        size = cv2.getTextSize(nombre, cv2.FONT_HERSHEY_DUPLEX, 0.95, 2)[0]
+        xname = x0 + (foto_w - size[0])//2
+        cv2.putText(img, nombre, (xname, y0+foto_h+30), cv2.FONT_HERSHEY_DUPLEX, 0.95, color, 2, cv2.LINE_AA)
+
+    # --- Mensaje visual de continuar ---
+    msg = "Presiona ESC para continuar..."
+    size = cv2.getTextSize(msg, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
+    xpos = int((W - size[0]) / 2)
+    cv2.putText(img, msg, (xpos, H-18), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (200, 220, 255), 2, cv2.LINE_AA)
 
     cv2.namedWindow("CAMPEON", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("CAMPEON", W, H)
+    cv2.resizeWindow("CAMPEON", int(W), H)
     cv2.imshow("CAMPEON", img)
-    cv2.waitKey(int(segundos * 1000))
+    while True:
+        key = cv2.waitKey(50)
+        if key == 27:  # ESC
+            break
+        if cv2.getWindowProperty("CAMPEON", cv2.WND_PROP_VISIBLE) < 1:
+            break
     cv2.destroyWindow("CAMPEON")
