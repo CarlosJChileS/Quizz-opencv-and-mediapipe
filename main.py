@@ -64,7 +64,7 @@ def ejecutar_quizz():
                         cv2.FONT_HERSHEY_SIMPLEX, 1.6, (255, 255, 0), 4)
             cv2.putText(vis_area, "¿Hecha por IA?", (30, 120),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.3, (255, 255, 255), 3)
-            cv2.putText(vis_area, "Derecha=REAL  |  Izquierda=IA", (30, 175),
+            cv2.putText(vis_area, "Izquierda=IA | Derecha=REAL" , (30, 175),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.1, (0, 255, 255), 3)
 
             elapsed = time.time() - tiempo_inicio
