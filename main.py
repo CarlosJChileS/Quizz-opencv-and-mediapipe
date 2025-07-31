@@ -20,6 +20,13 @@ def letterbox(im, box_size=(400, 720), color=(30, 30, 30)):
     canvas[y0:y0+new_h, x0:x0+new_w] = im_resized
     return canvas
 
+def mejorar_contraste_y_brillo(img, alpha=1.35, beta=40):
+    """
+    alpha: >1.0 aumenta el contraste
+    beta: >0 aumenta el brillo
+    """
+    return cv2.convertScaleAbs(img, alpha=alpha, beta=beta)
+
 def ejecutar_quizz():
     total_correctas = 0
     total_incorrectas = 0
@@ -33,7 +40,6 @@ def ejecutar_quizz():
         respuestas_por_jugador = {}
         colores_por_id = {}
 
-        # --- Carga la imagen y la ajusta universalmente ---
         img_q0 = cv2.imread(pregunta["image"])
         if img_q0 is None:
             print(f"No se pudo cargar la imagen {pregunta['image']}")
@@ -49,6 +55,9 @@ def ejecutar_quizz():
                 break
             img = cv2.flip(img, 1)
             img = cv2.resize(img, (vis_width, vis_height))
+
+            # === Mejora contraste/brillo para TODA la cámara ===
+            img = mejorar_contraste_y_brillo(img)
 
             vis_area = img.copy()
             respuestas, vis_area, colores_por_id = detectar_respuesta_por_rostro(vis_area)
