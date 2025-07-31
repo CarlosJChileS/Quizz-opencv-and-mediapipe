@@ -131,12 +131,12 @@ def detectar_respuesta_por_rostro(img):
     return respuestas, img, colores_por_id
 
 # --- Pantalla de celebración de campeón con foto ---
-def mostrar_campeon_con_foto(campeon_id, color, rostro, segundos=None):
+def mostrar_campeon_con_foto(campeon_id, color, rostro, segundos=3):
     import cv2
     import numpy as np
 
     W, H = 900, 600
-    # Fondo neutro
+    # Fondo neutro (gris azulado)
     img = np.full((H, W, 3), (60, 80, 120), dtype=np.uint8)
 
     if rostro is not None:
@@ -150,12 +150,5 @@ def mostrar_campeon_con_foto(campeon_id, color, rostro, segundos=None):
     cv2.namedWindow("CAMPEON", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("CAMPEON", W, H)
     cv2.imshow("CAMPEON", img)
-    # Espera indefinida: ESC para cerrar
-    while True:
-        key = cv2.waitKey(50)
-        if key == 27:  # ESC
-            break
-        # Si el usuario cierra la ventana manualmente, salir:
-        if cv2.getWindowProperty("CAMPEON", cv2.WND_PROP_VISIBLE) < 1:
-            break
+    cv2.waitKey(int(segundos * 1000))
     cv2.destroyWindow("CAMPEON")
