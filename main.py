@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import time
 from quizz_images import QUIZZ
-from utils import detectar_respuesta_por_rostro, mostrar_grafico_final, mostrar_ranking_individual
+from utils import detectar_respuesta_por_rostro, mostrar_campeon_con_foto
 
 cap = cv2.VideoCapture(0)
 cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
@@ -21,15 +21,9 @@ def letterbox(im, box_size=(400, 720), color=(30, 30, 30)):
     return canvas
 
 def mejorar_contraste_y_brillo(img, alpha=1.35, beta=40):
-    """
-    alpha: >1.0 aumenta el contraste
-    beta: >0 aumenta el brillo
-    """
     return cv2.convertScaleAbs(img, alpha=alpha, beta=beta)
 
 def ejecutar_quizz():
-    total_correctas = 0
-    total_incorrectas = 0
     puntaje_jugador = {}
     color_jugador = {}
 
@@ -55,14 +49,11 @@ def ejecutar_quizz():
                 break
             img = cv2.flip(img, 1)
             img = cv2.resize(img, (vis_width, vis_height))
-
-            # === Mejora contraste/brillo para TODA la cámara ===
             img = mejorar_contraste_y_brillo(img)
 
             vis_area = img.copy()
             respuestas, vis_area, colores_por_id = detectar_respuesta_por_rostro(vis_area)
 
-            # Mensajes, barra de tiempo, conteo, instrucciones
             cv2.putText(vis_area, f"IMAGEN {idx_preg + 1} de {len(QUIZZ)}", (30, 60),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.6, (255, 255, 0), 4)
             cv2.putText(vis_area, "¿Hecha por IA?", (30, 120),
@@ -85,14 +76,13 @@ def ejecutar_quizz():
             cv2.putText(vis_area, f"IA: {ia_count}", (vis_width - 300, vis_height - 40),
                         cv2.FONT_HERSHEY_SIMPLEX, 1.4, (0, 0, 255), 4)
 
-            # --- Combina imagen de pregunta + área de visualización ---
             separador = np.ones((vis_height, 20, 3), dtype=np.uint8) * 220
             if img_q.shape[0] != vis_area.shape[0]:
                 img_q = cv2.resize(img_q, (img_q.shape[1], vis_area.shape[0]))
             combined = np.hstack((img_q, separador, vis_area))
 
-            cv2.namedWindow("QUIZZ VISUAL", cv2.WND_PROP_FULLSCREEN)
-            cv2.setWindowProperty("QUIZZ VISUAL", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+            cv2.namedWindow("QUIZZ VISUAL", cv2.WINDOW_NORMAL)
+            cv2.resizeWindow("QUIZZ VISUAL", 1520, 720)
             cv2.imshow("QUIZZ VISUAL", combined)
             if cv2.waitKey(1) & 0xFF == 27:
                 return
@@ -100,24 +90,52 @@ def ejecutar_quizz():
             respuestas_por_jugador = respuestas
             color_jugador.update(colores_por_id)
 
+        # Suma puntaje final de cada jugador
         correcta = pregunta["answer"]
+        for jid in color_jugador:
+            puntaje_jugador.setdefault(jid, 0)
         for jid, resp in respuestas_por_jugador.items():
             if resp == correcta:
-                puntaje_jugador[jid] = puntaje_jugador.get(jid, 0) + 1
-            else:
-                puntaje_jugador.setdefault(jid, 0)
+                puntaje_jugador[jid] += 1
 
-        aciertos = list(respuestas_por_jugador.values()).count(correcta)
-        errores = len(respuestas_por_jugador) - aciertos
-        total_correctas += aciertos
-        total_incorrectas += errores
+    # --- CELEBRACIÓN DEL CAMPEÓN CON SU ROSTRO ---
+    if puntaje_jugador:
+        max_score = max(puntaje_jugador.values())
+        ganadores = [jid for jid, score in puntaje_jugador.items() if score == max_score and max_score > 0]
+        if ganadores:
+            ganador = ganadores[0]
+            color = color_jugador.get(ganador, (240, 240, 0))
 
-        print(f"✅ Aciertos: {aciertos}, ❌ Errores: {errores} (Correcta: {correcta})")
+            rostro = None
+            try:
+                _, frame = cap.read()
+                import mediapipe as mp
+                mp_face = mp.solutions.face_detection
+                face_detection = mp_face.FaceDetection(min_detection_confidence=0.55)
+                img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                results_face = face_detection.process(img_rgb)
+                h, w, _ = frame.shape
+                if results_face.detections:
+                    rostros_en_frame = []
+                    for i, detection in enumerate(results_face.detections):
+                        bbox = detection.location_data.relative_bounding_box
+                        x = int(bbox.xmin * w)
+                        y = int(bbox.ymin * h)
+                        ancho = int(bbox.width * w)
+                        alto = int(bbox.height * h)
+                        if ancho < 70 or alto < 70:
+                            continue
+                        rostros_en_frame.append((x, y, ancho, alto))
+                    if len(rostros_en_frame) >= ganador:
+                        x, y, ancho, alto = rostros_en_frame[ganador-1]
+                        rostro = frame[max(y,0):max(y,0)+alto, max(x,0):max(x,0)+ancho]
+                        if rostro.size == 0:
+                            rostro = None
+            except Exception as e:
+                print("No se pudo obtener el rostro:", e)
 
-    mostrar_grafico_final(total_correctas, total_incorrectas)
-    mostrar_ranking_individual(puntaje_jugador, color_jugador)
+            mostrar_campeon_con_foto(ganador, color, rostro, segundos=3.5)
 
-# === Bucle principal con opción a repetir ===
 while True:
     ejecutar_quizz()
     print("\n¿Repetir juego? (s/n): ", end="")
